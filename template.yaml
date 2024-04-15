@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Parameters:
+  RerportBucketName:
+    Type: String
+Globals:
+  Function:
+    Timeout: 60
+Resources:
+  ConvertFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: report_converter/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Architectures:
+        - arm64
+      Policies:
+        - Version: "2012-10-17"
+          Statement: 
+            - Effect: "Allow"
+              Action:
+                - s3:GetObject
+              Resource: 
+              - !Sub "arn:aws:s3:::${RerportBucketName}"
+              - !Sub "arn:aws:s3:::${RerportBucketName}/source/*"
+            - Effect: "Allow"
+              Action: "s3-object-lambda:WriteGetObjectResponse"
+              Resource:
+                - !Sub "arn:aws:s3-object-lambda:${AWS::Region}:${AWS::AccountId}:accesspoint/dmarc-convert-function-ol-ap"
+  ObjectLambdaAccessPoint:
+    Type: AWS::S3ObjectLambda::AccessPoint
+    Properties: 
+      Name: dmarc-convert-function-ol-ap
+      ObjectLambdaConfiguration: 
+        SupportingAccessPoint: !GetAtt S3AccessPoint.Arn
+        AllowedFeatures:
+          - GetObject-Range
+        TransformationConfigurations:
+          - ContentTransformation:
+              AwsLambda:
+                FunctionArn: !GetAtt ConvertFunction.Arn
+            Actions:
+              - GetObject
+  ObjectLambdaAccessPointPolicy:
+    Type: AWS::S3ObjectLambda::AccessPointPolicy
+    Properties: 
+      ObjectLambdaAccessPoint: !Ref ObjectLambdaAccessPoint
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement: 
+          - Effect: Allow
+            Principal: 
+              Service: athena.amazonaws.com
+            Action:
+              - s3-object-lambda:Get*
+            Resource: !Sub "arn:aws:s3-object-lambda:${AWS::Region}:${AWS::AccountId}:accesspoint/${ObjectLambdaAccessPoint}"
+            Condition: 
+              StringEquals: 
+                aws:SourceAccount: !Ref AWS::AccountId
+  S3AccessPoint:
+    Type: AWS::S3::AccessPoint
+    Properties: 
+      Bucket: !Ref RerportBucketName
+      Name: dmarc-converter-from-athena-ap
+      Policy:
+        Version: "2012-10-17"
+        Statement: 
+          - Sid: FromAthena
+            Effect: Allow
+            Principal: 
+              AWS: !Ref AWS::AccountId
+            Action:
+              - s3:*
+            Resource:
+              - !Sub "arn:aws:s3:${AWS::Region}:${AWS::AccountId}:accesspoint/dmarc-converter-from-athena-ap"
+              - !Sub "arn:aws:s3:${AWS::Region}:${AWS::AccountId}:accesspoint/dmarc-converter-from-athena-ap/object/*"
+            Condition: 
+              ForAnyValue:StringEquals: 
+                aws:CalledVia: "s3-object-lambda.amazonaws.com"
+  ConvertFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !GetAtt ConvertFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: athena.amazonaws.com

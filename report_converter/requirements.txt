@@ -1,0 +1,2 @@
+dmarc-reports==0.0.2
+xmltodict==0.13.0
