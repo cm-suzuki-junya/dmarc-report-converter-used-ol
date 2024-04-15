@@ -20,9 +20,9 @@ def lambda_handler(event, context):
     try:
         AggregateReport(io.StringIO(report))
     except BadAggregateReport as error:
-        reuturn invalid_data_format_post_process("Invalid format report")
+        return invalid_data_format_post_process("Invalid format report", obj)
     except Exception as error:
-        return invalid_data_format_post_process("This Data cannot be converted")
+        return invalid_data_format_post_process("This Data cannot be converted", obj)
     
     json_mailbody = xmltodict.parse(report)
     shaped_dmarc_json(json_mailbody)
@@ -70,7 +70,7 @@ def shaped_dmarc_json(data):
             if 'dkim' in d['auth_results'] and type(d['auth_results']['dkim']) is not list:
                 data['feedback']['record'][i]['auth_results']['dkim'] = [data['feedback']['record'][i]['auth_results']['dkim']]
 
-def invalid_data_format_post_process(msg):
+def invalid_data_format_post_process(msg, obj):
     '''
         不正なデータ形式を得た場合の共通終了処理
         該当ケースでは通常この返却値をメインハンドラでreturnして終了する
